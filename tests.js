@@ -1,0 +1,230 @@
+// ============================================================
+// tests.js
+// Simple tests for Drip's data functions.
+// These tests use a tiny assert() helper — no test framework.
+// Results are logged to the browser console (F12 > Console).
+// ============================================================
+
+import {
+  roundMoney,
+  makeId,
+  todayString,
+  formatDate,
+  addDaysToDate,
+  isValidDate,
+  isFutureDate,
+  monthKey,
+  currentMonthKey,
+  makeDefaultCategories,
+  sumAmounts,
+  sortPurchasesByDate,
+  hoursWorked,
+  findDuplicateCategory,
+  findDuplicatePurchase,
+} from './data.js';
+
+// ------------------------------------------------------------
+// assertEqual(actual, expected, label) checks if two values
+// are equal. If they match, it logs PASS. If not, it logs FAIL
+// with both values so you can see what went wrong.
+// ------------------------------------------------------------
+function assertEqual(actual, expected, label) {
+  if (actual === expected) {
+    console.log('%cPASS%c ' + label, 'color:green;font-weight:bold', 'color:inherit');
+  } else {
+    console.log(
+      '%cFAIL%c ' + label +
+      ' — expected: ' + String(expected) +
+      ', got: ' + String(actual),
+      'color:red;font-weight:bold',
+      'color:inherit'
+    );
+  }
+}
+
+// ------------------------------------------------------------
+// assertTrue(value, label) checks that a value is true.
+// ------------------------------------------------------------
+function assertTrue(value, label) {
+  assertEqual(value, true, label);
+}
+
+// ------------------------------------------------------------
+// assertFalse(value, label) checks that a value is false.
+// ------------------------------------------------------------
+function assertFalse(value, label) {
+  assertEqual(value, false, label);
+}
+
+// ------------------------------------------------------------
+// runTests() runs every test group and prints a summary.
+// ------------------------------------------------------------
+function runTests() {
+  console.log('%c=== Drip Tests ===', 'font-size:16px;font-weight:bold');
+  let passed = 0;
+  let failed = 0;
+
+  // Save the real console.log so we can count results.
+  const originalLog = console.log;
+  console.log = function () {
+    originalLog.apply(console, arguments);
+    if (arguments.length >= 2) {
+      const style = arguments[0] || '';
+      if (style.includes('color:green')) passed++;
+      if (style.includes('color:red')) failed++;
+    }
+  };
+
+  // --- roundMoney ---
+  assertEqual(roundMoney(10.005), 10.01, 'roundMoney rounds up at 5');
+  assertEqual(roundMoney(10.004), 10.0, 'roundMoney rounds down at 4');
+  assertEqual(roundMoney(0), 0, 'roundMoney handles zero');
+  assertEqual(roundMoney('5.5'), 5.5, 'roundMoney works with string input');
+
+  // --- makeId ---
+  const id1 = makeId();
+  const id2 = makeId();
+  assertTrue(id1.length > 0, 'makeId returns a non-empty string');
+  assertTrue(id1 !== id2, 'makeId returns unique ids');
+
+  // --- formatDate ---
+  const d = new Date(2026, 0, 5); // Jan 5, 2026
+  assertEqual(formatDate(d), '2026-01-05', 'formatDate pads month and day');
+  const d2 = new Date(2026, 10, 25); // Nov 25, 2026
+  assertEqual(formatDate(d2), '2026-11-25', 'formatDate handles double-digit month');
+
+  // --- addDaysToDate ---
+  assertEqual(addDaysToDate('2026-01-01', 5), '2026-01-06', 'addDaysToDate adds days');
+  assertEqual(addDaysToDate('2026-01-31', 1), '2026-02-01', 'addDaysToDate crosses month boundary');
+  assertEqual(addDaysToDate('2026-03-01', -1), '2026-02-28', 'addDaysToDate subtracts days');
+
+  // --- isValidDate ---
+  assertTrue(isValidDate('2026-01-15'), 'isValidDate accepts a real date');
+  assertFalse(isValidDate('2026-02-30'), 'isValidDate rejects Feb 30');
+  assertFalse(isValidDate('not-a-date'), 'isValidDate rejects garbage');
+  assertFalse(isValidDate('2026-1-5'), 'isValidDate rejects non-padded format');
+  assertFalse(isValidDate(123), 'isValidDate rejects a number');
+
+  // --- isFutureDate ---
+  assertFalse(isFutureDate('2020-01-01'), 'isFutureDate is false for a past date');
+  assertTrue(isFutureDate('2099-12-31'), 'isFutureDate is true for a far future date');
+
+  // --- monthKey ---
+  assertEqual(monthKey('2026-11-23'), '2026-11', 'monthKey extracts YYYY-MM');
+  assertEqual(monthKey('2026-01-01'), '2026-01', 'monthKey works for January');
+
+  // --- currentMonthKey ---
+  const cmk = currentMonthKey();
+  assertTrue(cmk.length === 7, 'currentMonthKey returns 7 characters');
+
+  // --- todayString ---
+  const today = todayString();
+  assertTrue(isValidDate(today), 'todayString returns a valid date');
+  assertFalse(isFutureDate(today), 'todayString is not in the future');
+
+  // --- makeDefaultCategories ---
+  const cats = makeDefaultCategories();
+  assertEqual(cats.length, 8, 'makeDefaultCategories returns 8 categories');
+  assertEqual(cats[0].name, 'Coffee', 'first default category is Coffee');
+  assertEqual(cats[7].name, 'Other', 'last default category is Other');
+  assertEqual(cats[0].monthlyLimit, 0, 'default monthly limit is 0');
+  assertEqual(cats[0].watch, false, 'default watch is false');
+
+  // --- sumAmounts ---
+  const samplePurchases = [
+    { amount: 5.5 },
+    { amount: 3.25 },
+    { amount: 1.0 },
+  ];
+  assertEqual(sumAmounts(samplePurchases), 9.75, 'sumAmounts adds amounts correctly');
+  assertEqual(sumAmounts([]), 0, 'sumAmounts of empty array is 0');
+
+  // --- sortPurchasesByDate ---
+  const unsorted = [
+    { id: 'a', date: '2026-03-01' },
+    { id: 'b', date: '2026-01-15' },
+    { id: 'c', date: '2026-02-10' },
+  ];
+  const sorted = sortPurchasesByDate(unsorted);
+  assertEqual(sorted[0].id, 'a', 'sortPurchasesByDate puts newest first');
+  assertEqual(sorted[2].id, 'b', 'sortPurchasesByDate puts oldest last');
+  // Make sure it did not change the original array.
+  assertEqual(unsorted[0].id, 'a', 'sortPurchasesByDate does not mutate original');
+
+  // --- hoursWorked ---
+  assertEqual(hoursWorked(100, 25), 4, 'hoursWorked divides amount by wage');
+  assertEqual(hoursWorked(50, 0), null, 'hoursWorked returns null for zero wage');
+  assertEqual(hoursWorked(50, -10), null, 'hoursWorked returns null for negative wage');
+  assertEqual(hoursWorked(33.5, 15), 2.2, 'hoursWorked rounds to 1 decimal');
+
+  // Restore console.log and print the summary.
+  console.log = originalLog;
+  console.log(
+    '%c=== Results: ' + passed + ' passed, ' + failed + ' failed ===',
+    'font-size:14px;font-weight:bold;color:' + (failed === 0 ? 'green' : 'red')
+  );
+
+  // Duplicate tests run separately so they do not affect the count above.
+  runDuplicateTests();
+}
+
+// Run the tests after the page is fully loaded.
+document.addEventListener('DOMContentLoaded', runTests);
+
+// ============================================================
+// PHASE 2 TESTS — duplicates
+// These use in-memory arrays so they do not touch storage.
+// ============================================================
+
+// ------------------------------------------------------------
+// runDuplicateTests() checks findDuplicateCategory and
+// findDuplicatePurchase with sample arrays.
+// ------------------------------------------------------------
+function runDuplicateTests() {
+  console.log('%c=== Duplicate Tests ===', 'font-size:16px;font-weight:bold');
+
+  // Sample categories to test against.
+  const sampleCats = [
+    { id: '1', name: 'Coffee', monthlyLimit: 0, watch: false },
+    { id: '2', name: 'Snacks', monthlyLimit: 0, watch: false },
+  ];
+
+  // Exact match is found.
+  const dup1 = findDuplicateCategory('Snacks', sampleCats);
+  assertTrue(dup1 !== null, 'duplicate category: exact name is rejected');
+  assertEqual(dup1 && dup1.id, '2', 'duplicate category: returns the right one');
+
+  // Different capitalization is still rejected.
+  const dup2 = findDuplicateCategory('COFFEE', sampleCats);
+  assertTrue(dup2 !== null, 'duplicate category: UPPERCASE is rejected');
+  assertEqual(dup2 && dup2.id, '1', 'duplicate category: uppercase matches Coffee');
+
+  const dup3 = findDuplicateCategory('  coffee ', sampleCats);
+  assertTrue(dup3 !== null, 'duplicate category: extra spaces + lowercase rejected');
+
+  // A brand new name is allowed.
+  const dup4 = findDuplicateCategory('Bubble Tea', sampleCats);
+  assertEqual(dup4, null, 'duplicate category: new name is allowed');
+
+  // Sample purchases to test against.
+  const samplePurchases = [
+    { id: 'a', amount: 4.5, category: '1', date: '2026-11-20', note: '', merchant: 'Starbucks' },
+    { id: 'b', amount: 12.0, category: '2', date: '2026-11-21', note: '', merchant: 'Uber Eats' },
+  ];
+
+  // Same amount, merchant, and date = duplicate.
+  const dupP1 = findDuplicatePurchase(4.5, 'Starbucks', '2026-11-20', samplePurchases);
+  assertTrue(dupP1 !== null, 'duplicate purchase: exact match triggers confirmation');
+
+  // Same merchant and amount but a different date is NOT a duplicate.
+  const dupP2 = findDuplicatePurchase(4.5, 'Starbucks', '2026-11-22', samplePurchases);
+  assertEqual(dupP2, null, 'duplicate purchase: different date is allowed');
+
+  // Merchant matching ignores capitalization.
+  const dupP3 = findDuplicatePurchase(4.5, 'starbucks', '2026-11-20', samplePurchases);
+  assertTrue(dupP3 !== null, 'duplicate purchase: merchant capitalization ignored');
+
+  // Same date and merchant but different amount is NOT a duplicate.
+  const dupP4 = findDuplicatePurchase(5.0, 'Starbucks', '2026-11-20', samplePurchases);
+  assertEqual(dupP4, null, 'duplicate purchase: different amount is allowed');
+}

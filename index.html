@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Drip — Spending Limit Tracker</title>
+    <meta name="description" content="Drip helps you see where small recurring purchases add up and warns you before you overspend." />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <!-- ===== HEADER ===== -->
+    <header class="app-header">
+      <div class="header-inner">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">💧</span>
+          <div>
+            <h1 class="brand-name">Drip</h1>
+            <p class="brand-tag">Spending Limit Tracker</p>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <button id="theme-toggle" class="btn btn-ghost" type="button" aria-label="Toggle light and dark mode">
+            <span class="theme-icon-light">☀️</span>
+            <span class="theme-icon-dark">🌙</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== TABS ===== -->
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="dashboard" type="button">Dashboard</button>
+      <button class="tab" data-view="add" type="button">Add Purchase</button>
+      <button class="tab" data-view="categories" type="button">Categories &amp; Limits</button>
+      <button class="tab" data-view="purchases" type="button">History</button>
+      <button class="tab" data-view="subscriptions" type="button">Subscriptions</button>
+      <button class="tab" data-view="settings" type="button">Settings</button>
+    </nav>
+
+    <main class="app-main">
+      <!-- ===== DASHBOARD ===== -->
+      <section id="view-dashboard" class="view active">
+        <div class="summary-cards" id="summary-cards"></div>
+        <div class="dashboard-grid">
+          <div class="card">
+            <div class="card-head">
+              <h2 class="card-title">Spending by Category</h2>
+              <span class="card-sub">This month</span>
+            </div>
+            <div id="dashboard-categories"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <h2 class="card-title">Recent Purchases</h2>
+              <span class="card-sub">Last 5</span>
+            </div>
+            <ul id="dashboard-recent" class="recent-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ADD PURCHASE ===== -->
+      <section id="view-add" class="view">
+        <div class="card card-narrow">
+          <div class="card-head">
+            <h2 class="card-title">Add a Purchase</h2>
+          </div>
+          <form id="add-purchase-form" class="form" novalidate>
+            <div class="form-row">
+              <label class="field">
+                <span class="field-label">Amount <span class="req">*</span></span>
+                <input id="f-amount" name="amount" type="number" step="0.01" min="0.01" inputmode="decimal" placeholder="0.00" />
+                <span class="field-error" id="err-amount"></span>
+              </label>
+
+              <label class="field">
+                <span class="field-label">Category <span class="req">*</span></span>
+                <select id="f-category" name="category"></select>
+                <span class="field-error" id="err-category"></span>
+              </label>
+            </div>
+
+            <div class="form-row">
+              <label class="field">
+                <span class="field-label">Date <span class="req">*</span></span>
+                <input id="f-date" name="date" type="date" />
+                <span class="field-error" id="err-date"></span>
+              </label>
+
+              <label class="field">
+                <span class="field-label">Merchant</span>
+                <input id="f-merchant" name="merchant" type="text" placeholder="e.g. Starbucks" />
+              </label>
+            </div>
+
+            <label class="field">
+              <span class="field-label">Note</span>
+              <input id="f-note" name="note" type="text" placeholder="What was it for?" />
+            </label>
+
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Add Purchase</button>
+              <span class="form-success" id="add-success"></span>
+            </div>
+          </form>
+
+          <!-- Impulse Check Panel (hidden until needed) -->
+          <div id="impulse-panel" class="impulse-panel hidden">
+            <div class="impulse-head">
+              <h3 class="impulse-title">Impulse Check</h3>
+              <span class="impulse-sub">This is a watched category. Think before you log.</span>
+            </div>
+            <div id="impulse-content" class="impulse-stats"></div>
+            <div class="impulse-actions">
+              <button id="impulse-log" class="btn btn-primary" type="button">Log it anyway</button>
+              <button id="impulse-skip" class="btn btn-secondary" type="button">Skip it</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== CATEGORIES ===== -->
+      <section id="view-categories" class="view">
+        <div class="card card-narrow">
+          <div class="card-head">
+            <h2 class="card-title">Add Category</h2>
+          </div>
+          <form id="add-category-form" class="form" novalidate>
+            <div class="form-row">
+              <label class="field">
+                <span class="field-label">Name <span class="req">*</span></span>
+                <input id="c-name" name="name" type="text" placeholder="e.g. Coffee" />
+                <span class="field-error" id="err-cname"></span>
+              </label>
+              <label class="field">
+                <span class="field-label">Monthly Limit</span>
+                <input id="c-limit" name="monthlyLimit" type="number" step="0.01" min="0" placeholder="0.00" />
+              </label>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Add Category</button>
+              <span class="form-success" id="cat-success"></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title">Categories &amp; Limits</h2>
+            <span class="card-sub">Toggle a category to watch it on the dashboard</span>
+          </div>
+          <div id="categories-list" class="categories-list"></div>
+        </div>
+      </section>
+
+      <!-- ===== PURCHASES ===== -->
+      <section id="view-purchases" class="view">
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title">All Purchases</h2>
+            <select id="filter-category" class="select-small"></select>
+          </div>
+          <div class="table-wrap">
+            <table class="purchases-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Category</th>
+                  <th>Merchant</th>
+                  <th>Note</th>
+                  <th class="ta-right">Amount</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="purchases-body"></tbody>
+            </table>
+          </div>
+          <p id="purchases-empty" class="empty-state">No purchases yet. Add one or load demo data.</p>
+        </div>
+      </section>
+
+      <!-- ===== SUBSCRIPTIONS ===== -->
+      <section id="view-subscriptions" class="view">
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title">Detected Subscriptions</h2>
+            <span class="card-sub">Charges from the same merchant, similar amounts, ~30 days apart</span>
+          </div>
+          <div id="subscriptions-list" class="subscriptions-list"></div>
+          <div id="subscriptions-total"></div>
+        </div>
+      </section>
+
+      <!-- ===== SETTINGS ===== -->
+      <section id="view-settings" class="view">
+        <div class="card card-narrow">
+          <div class="card-head">
+            <h2 class="card-title">Settings</h2>
+          </div>
+          <form id="settings-form" class="form" novalidate>
+            <div class="form-row">
+              <label class="field">
+                <span class="field-label">Hourly Wage</span>
+                <input id="s-wage" name="hourlyWage" type="number" step="0.01" min="0" placeholder="0.00" />
+                <span class="field-error" id="err-wage"></span>
+                <span class="field-hint">Used to show purchases as hours worked.</span>
+              </label>
+              <label class="field">
+                <span class="field-label">Currency Symbol</span>
+                <input id="s-currency" name="currency" type="text" maxlength="3" placeholder="$" />
+              </label>
+            </div>
+            <label class="field">
+              <span class="field-label">Savings Goal</span>
+              <input id="s-goal" name="savingsGoal" type="number" step="0.01" min="0" placeholder="e.g. 500.00" />
+              <span class="field-hint">Leave blank for no goal.</span>
+            </label>
+            <div class="form-actions">
+              <button class="btn btn-primary" type="submit">Save Settings</button>
+              <span class="form-success" id="set-success"></span>
+            </div>
+          </form>
+        </div>
+
+        <div class="card card-narrow">
+          <div class="card-head">
+            <h2 class="card-title">Data</h2>
+          </div>
+          <div class="data-actions">
+            <button id="btn-demo" class="btn btn-secondary" type="button">Load demo data</button>
+            <button id="btn-clear" class="btn btn-danger" type="button">Clear all data</button>
+          </div>
+          <p class="field-hint">Demo data adds ~60 realistic purchases over the last 3 months. Clear removes everything.</p>
+        </div>
+      </section>
+    </main>
+
+    <!-- ===== BOTTOM NAV (phones only, hidden on desktop) ===== -->
+    <nav class="bottom-nav" id="bottom-nav">
+      <button class="nav-item active" data-view="dashboard" type="button">Dashboard</button>
+      <button class="nav-item" data-view="add" type="button">Add</button>
+      <button class="nav-item" data-view="purchases" type="button">History</button>
+      <button class="nav-item" data-view="categories" type="button">Limits</button>
+      <button class="nav-item" data-view="settings" type="button">Settings</button>
+    </nav>
+
+    <!-- ===== FOOTER ===== -->
+    <footer class="app-footer">
+      <p>Drip · A college intro-programming project · Data stays in your browser</p>
+    </footer>
+
+    <!-- ===== SCRIPTS ===== -->
+    <script type="module" src="/data.js"></script>
+    <script type="module" src="/app.js"></script>
+    <script type="module" src="/tests.js"></script>
+  </body>
+</html>
