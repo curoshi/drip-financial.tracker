@@ -213,6 +213,14 @@ function runTests() {
   assertEqual(safeToSpendPerDay(100, 50, 10), 5, 'safeToSpendPerDay: $50 left over 10 days is $5/day');
   assertEqual(safeToSpendPerDay(100, 50, 0), 0, 'safeToSpendPerDay: 0 days left returns 0');
 
+  // --- getLimitForRange ---
+  assertEqual(getLimitForRange(60, 'month'), 60, 'getLimitForRange month = monthly limit');
+  assertEqual(getLimitForRange(60, '3months'), 180, 'getLimitForRange 3 months = x3');
+  assertEqual(getLimitForRange(60, '6months'), 360, 'getLimitForRange 6 months = x6');
+  assertEqual(getLimitForRange(60, 'year'), 720, 'getLimitForRange year = x12');
+  assertEqual(getLimitForRange(60, 'today'), roundMoney(60 / daysInMonth()), 'getLimitForRange today = one day share');
+  assertEqual(getLimitForRange(0, 'year'), 0, 'getLimitForRange returns 0 when no limit');
+
   // Restore console.log and print the summary.
   console.log = originalLog;
   console.log(
@@ -371,6 +379,23 @@ function runDeleteCategoryTests() {
       purchases.every(function (p) { return p.category === 'other'; }),
       'deleteCategory: purchases moved to Other'
     );
+
+    // If there is NO Other category, deleting still keeps purchases.
+    saveCategories([
+      { id: 'coffee', name: 'Coffee', monthlyLimit: 0, watch: false },
+    ]);
+    savePurchases([
+      { id: 'p3', amount: 5.0, category: 'coffee', date: '2026-11-03', note: '', merchant: '' },
+    ]);
+    deleteCategory('coffee');
+    const afterCats = loadCategories();
+    const afterPurchases = loadPurchases();
+    assertEqual(afterPurchases.length, 1, 'deleteCategory: no Other still keeps purchases');
+    assertTrue(
+      afterCats.length === 1 && afterCats[0].name === 'Other' &&
+        afterPurchases[0].category === afterCats[0].id,
+      'deleteCategory: a new Other is created when missing'
+    );
   } finally {
     restoreStorage(real);
   }
@@ -409,6 +434,14 @@ function runSubscriptionTests() {
   // A single purchase can never be a subscription.
   const single = detectSubscriptions([repeating[0]]);
   assertEqual(single.length, 0, 'subscriptions: a single charge is ignored');
+
+  // Only 2 charges a month apart is NOT enough (could be a coincidence).
+  const twoCharges = detectSubscriptions([repeating[0], repeating[1]]);
+  assertEqual(twoCharges.length, 0, 'subscriptions: only 2 charges is not enough');
+
+  // Exactly 3 charges is the minimum that counts.
+  const threeCharges = detectSubscriptions(repeating);
+  assertEqual(threeCharges.length, 1, 'subscriptions: 3 charges is detected');
 }
 
 // ============================================================
