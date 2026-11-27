@@ -274,7 +274,7 @@ export function deleteCategory(id) {
   let cats = loadCategories();
 
   // Find the "Other" category, as long as it is not the one
-  // being deleted.
+  // being deleted. Purchases from the deleted category move there.
   let otherCat = null;
   for (let i = 0; i < cats.length; i++) {
     if (cats[i].name.toLowerCase() === 'other' && cats[i].id !== id) {
@@ -287,25 +287,23 @@ export function deleteCategory(id) {
   cats = cats.filter(function (c) {
     return c.id !== id;
   });
+
+  // If there is no Other category (it was renamed or deleted),
+  // make a new one so no purchases are ever lost.
+  if (!otherCat) {
+    otherCat = { id: makeId(), name: 'Other', monthlyLimit: 0, watch: false };
+    cats.push(otherCat);
+  }
   saveCategories(cats);
 
+  // Move every purchase from the deleted category to Other.
   const purchases = loadPurchases();
-
-  if (otherCat) {
-    // Move every purchase from the deleted category to Other.
-    for (let i = 0; i < purchases.length; i++) {
-      if (purchases[i].category === id) {
-        purchases[i].category = otherCat.id;
-      }
+  for (let i = 0; i < purchases.length; i++) {
+    if (purchases[i].category === id) {
+      purchases[i].category = otherCat.id;
     }
-    savePurchases(purchases);
-  } else {
-    // No Other category — remove the purchases as before.
-    const kept = purchases.filter(function (p) {
-      return p.category !== id;
-    });
-    savePurchases(kept);
   }
+  savePurchases(purchases);
 }
 
 // ------------------------------------------------------------
@@ -455,6 +453,24 @@ export function getPurchasesSince(days) {
   return purchases.filter(function (p) {
     return p.date >= cutoff && p.date <= todayString();
   });
+}
+
+// ------------------------------------------------------------
+// getLimitForRange(monthlyLimit, rangeKey) scales a MONTHLY
+// limit to the time range picked on the dashboard, so bars
+// stay fair when the range changes:
+//   today   = one day's share (monthly limit / days in month)
+//   month   = the monthly limit
+//   3months = monthly limit x 3, 6months = x 6, year = x 12
+// Returns 0 when there is no limit (monthlyLimit is 0).
+// ------------------------------------------------------------
+export function getLimitForRange(monthlyLimit, rangeKey) {
+  if (!monthlyLimit || monthlyLimit <= 0) return 0;
+  if (rangeKey === 'today') return roundMoney(monthlyLimit / daysInMonth());
+  if (rangeKey === '3months') return roundMoney(monthlyLimit * 3);
+  if (rangeKey === '6months') return roundMoney(monthlyLimit * 6);
+  if (rangeKey === 'year') return roundMoney(monthlyLimit * 12);
+  return roundMoney(monthlyLimit);
 }
 
 // ------------------------------------------------------------
@@ -736,6 +752,10 @@ export function getSafeToSpendPerDay() {
 // SUBSCRIPTION DETECTOR
 // ============================================================
 
+// A merchant needs at least this many matching charges before
+// we call it a subscription (2 can be a coincidence).
+const MIN_SUBSCRIPTION_CHARGES = 3;
+
 // ------------------------------------------------------------
 // withinTenPercent(a, b) returns true if two amounts are
 // within 10% of each other.
@@ -806,7 +826,7 @@ function averageGap(purchases) {
 // ------------------------------------------------------------
 // detectSubscriptions(purchases) groups purchases by merchant
 // (case-insensitive) and finds subscriptions.
-// A subscription is 2+ purchases from the same merchant whose
+// A subscription is 3+ purchases from the same merchant whose
 // amounts are within 10% of each other and whose gaps are
 // 25-35 days apart.
 // Returns an array of subscription objects:
@@ -829,7 +849,8 @@ export function detectSubscriptions(purchases) {
 
   for (let g = 0; g < keys.length; g++) {
     const group = groups[keys[g]];
-    if (group.length < 2) continue;
+    // Two charges can be a coincidence, so we need at least 3.
+    if (group.length < MIN_SUBSCRIPTION_CHARGES) continue;
 
     // Sort by date oldest first.
     group.sort(function (a, b) {
@@ -938,6 +959,18 @@ function pickRandom(arr) {
 // It also sets a few categories to "watch" and sets limits.
 // ------------------------------------------------------------
 export function loadDemoData() {
+  loadDemoDataSized(60, 90);
+}
+
+// ------------------------------------------------------------
+// loadDemoDataSized(itemCount, days) replaces all data with
+// demo categories and exactly itemCount purchases spread over
+// the last "days" days. Two subscriptions (Netflix, Spotify)
+// repeat about every 30 days across the whole span, and the
+// rest of the purchases are random. Used by the Settings
+// buttons (30 / 60 / 120 / 300 items) to stress-test the app.
+// ------------------------------------------------------------
+export function loadDemoDataSized(itemCount, days) {
   // Start fresh with default categories.
   const cats = makeDefaultCategories();
   saveCategories(cats);
@@ -967,8 +1000,9 @@ export function loadDemoData() {
 
   for (let s = 0; s < subMerchants.length; s++) {
     const sub = subMerchants[s];
-    // Add a subscription charge every ~30 days for 3 months.
-    for (let m = 0; m < 3; m++) {
+    // Add a subscription charge every ~30 days across the whole span.
+    const chargeCount = Math.max(3, Math.floor((days - 5) / 30) + 1);
+    for (let m = 0; m < chargeCount; m++) {
       const dateStr = addDaysToDate(today, -(m * 30 + 5));
       purchases.push({
         id: makeId(),
@@ -981,17 +1015,16 @@ export function loadDemoData() {
     }
   }
 
-  // Now add about 58 more random purchases over 90 days.
-  // We loop until we have roughly 60 total.
-  let target = 60 - purchases.length;
+  // Now add random purchases until we have itemCount in total.
+  let target = itemCount - purchases.length;
 
   for (let i = 0; i < target; i++) {
     // Pick a random merchant entry.
     const entry = pickRandom(DEMO_MERCHANTS);
     // Find the category object by index.
     const cat = updatedCats[entry.cat];
-    // Pick a random day in the last 90 days.
-    const daysAgo = Math.floor(Math.random() * 90);
+    // Pick a random day in the chosen time span.
+    const daysAgo = Math.floor(Math.random() * days);
     const dateStr = addDaysToDate(today, -daysAgo);
 
     purchases.push({
