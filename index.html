@@ -244,19 +244,28 @@
           <div class="card-head">
             <h2 class="card-title">Data</h2>
           </div>
-          <div class="data-actions">
-            <button id="btn-demo" class="btn btn-secondary" type="button">Load demo data</button>
-            <button id="btn-clear" class="btn btn-danger" type="button">Clear all data</button>
-          </div>
-          <p class="field-hint">Demo data adds ~60 realistic purchases over the last 3 months. Clear removes everything.</p>
-          <h3 class="field-label">Stress-test data</h3>
+          <h3 class="field-label">Stress-test data (size)</h3>
           <div class="data-actions">
             <button class="btn btn-secondary" type="button" data-demo-items="30" data-demo-days="90">30 items / 3 months</button>
             <button class="btn btn-secondary" type="button" data-demo-items="60" data-demo-days="180">60 items / 6 months</button>
             <button class="btn btn-secondary" type="button" data-demo-items="120" data-demo-days="270">120 items / 9 months</button>
             <button class="btn btn-secondary" type="button" data-demo-items="300" data-demo-days="365">300 items / 1 year</button>
           </div>
-          <p class="field-hint">Each button replaces your current data with that many random purchases spread over the time shown, so you can test the dashboard ranges, history, and subscription detector.</p>
+          <p class="field-hint">Each button replaces your current data with that many random purchases over the time shown.</p>
+
+          <h3 class="field-label">Limit and alert tests</h3>
+          <div class="data-actions" id="scenario-limits"></div>
+
+          <h3 class="field-label">Feature tests</h3>
+          <div class="data-actions" id="scenario-features"></div>
+
+          <p class="field-hint" id="scenario-expect">Click a test button to load its data. What to look for will show here.</p>
+
+          <h3 class="field-label">Reset</h3>
+          <div class="data-actions">
+            <button id="btn-clear" class="btn btn-danger" type="button">Clear all data</button>
+          </div>
+          <p class="field-hint">Every test button replaces your current data. Clear removes everything.</p>
         </div>
       </section>
     </main>

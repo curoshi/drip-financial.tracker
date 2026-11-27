@@ -952,6 +952,331 @@ function pickRandom(arr) {
   return arr[index];
 }
 
+// ============================================================
+// TEST SCENARIOS
+// Each scenario replaces the current data with a small, known
+// data set so one feature can be checked quickly. The "expect"
+// text tells the tester what the app should show afterwards.
+// ============================================================
+
+// The standard monthly limits used by the limit scenarios.
+// Order matches the default categories (Coffee, Food Delivery,
+// Fast Food, Subscriptions, In-App/Gaming).
+const SCENARIO_LIMITS = [60, 120, 80, 40, 50];
+
+// ------------------------------------------------------------
+// SCENARIOS lists the test buttons shown on the Settings page.
+//   key    : name used by loadScenario()
+//   group  : which button row it belongs to
+//   label  : text on the button
+//   expect : what the tester should see afterwards
+// ------------------------------------------------------------
+export const SCENARIOS = [
+  {
+    key: 'limits-ok',
+    group: 'limits',
+    label: 'All under 80%',
+    expect:
+      'Dashboard, "This month": every limited category is green at about 40%. No alert banner.',
+  },
+  {
+    key: 'limits-warning',
+    group: 'limits',
+    label: 'All at 85% (warning)',
+    expect:
+      'Every limited category is yellow at about 85%. The banner lists them as warnings.',
+  },
+  {
+    key: 'limits-over',
+    group: 'limits',
+    label: 'Over limit (120%)',
+    expect:
+      'Every limited category is red at 120%. The banner shows over-limit alerts and "safe to spend per day" shows $0.',
+  },
+  {
+    key: 'limits-boundary',
+    group: 'limits',
+    label: 'Exact boundaries',
+    expect:
+      'Coffee exactly 80% = yellow. Food Delivery exactly 100% = red. Fast Food 79.99% = green. Subscriptions 100.03% = red. In-App has no spending.',
+  },
+  {
+    key: 'limits-mixed',
+    group: 'limits',
+    label: 'Mixed statuses',
+    expect:
+      'Coffee green, Food Delivery yellow, Fast Food red, Subscriptions has no limit (grey bar), In-App empty.',
+  },
+  {
+    key: 'no-limits',
+    group: 'limits',
+    label: 'No limits set',
+    expect:
+      'All limits are 0. Bars show "no limit" and are sized against the biggest category. No crash and no banner.',
+  },
+  {
+    key: 'empty-month',
+    group: 'features',
+    label: 'Empty month',
+    expect:
+      'Nothing this month, only older purchases. "This month" shows $0 and empty bars. 3 months, 6 months, and 1 year show data.',
+  },
+  {
+    key: 'today-spike',
+    group: 'features',
+    label: 'Big spending today',
+    expect:
+      'Choose "This day": several categories are over their one-day share. Older purchases are not counted.',
+  },
+  {
+    key: 'subscriptions',
+    group: 'features',
+    label: 'Subscription detector',
+    expect:
+      'Subscriptions screen lists Netflix, Spotify, and Disney+ only. Gym (2 charges), Hulu (45-day gap), and Amazon (random) are NOT listed.',
+  },
+  {
+    key: 'duplicates',
+    group: 'features',
+    label: 'Duplicate check',
+    expect:
+      'One purchase exists: Starbucks $5.50 today in Coffee. Add the same amount, merchant, and date again to see the duplicate prompt.',
+  },
+  {
+    key: 'impulse',
+    group: 'features',
+    label: 'Impulse check',
+    expect:
+      'Coffee is at 95% and is watched, and your hourly wage is $15. Add a Coffee purchase to see budget left, yearly habit cost, and work hours.',
+  },
+];
+
+// ------------------------------------------------------------
+// scenarioDate(index) returns a date in the CURRENT month,
+// spread from the 1st up to today, so month purchases never
+// land in the future or in last month.
+// ------------------------------------------------------------
+function scenarioDate(index) {
+  const today = todayString();
+  const dayOfMonth = Number(today.slice(8, 10));
+  return addDaysToDate(today, -(index % dayOfMonth));
+}
+
+// ------------------------------------------------------------
+// splitAmount(total, parts) splits a money total into parts
+// that add up to exactly the total (the last part takes the
+// leftover so rounding never changes the sum).
+// ------------------------------------------------------------
+function splitAmount(total, parts) {
+  const result = [];
+  let used = 0;
+  for (let i = 0; i < parts - 1; i++) {
+    const piece = roundMoney(total / parts);
+    result.push(piece);
+    used = roundMoney(used + piece);
+  }
+  result.push(roundMoney(total - used));
+  return result;
+}
+
+// ------------------------------------------------------------
+// makeScenarioCategories(limits, watchIndexes) saves the
+// default categories with the given limits (0 = no limit) and
+// watch flags, and returns them.
+// ------------------------------------------------------------
+function makeScenarioCategories(limits, watchIndexes) {
+  const cats = makeDefaultCategories();
+  for (let i = 0; i < cats.length; i++) {
+    cats[i].monthlyLimit = i < limits.length ? limits[i] : 0;
+    cats[i].watch = watchIndexes.indexOf(i) !== -1;
+  }
+  saveCategories(cats);
+  return cats;
+}
+
+// ------------------------------------------------------------
+// monthSpendFor(cats, amounts, startIndex) makes this-month
+// purchases. amounts[i] is the TOTAL for category i (or null
+// for none). Each total is split into 3 purchases.
+// ------------------------------------------------------------
+function monthSpendFor(cats, amounts) {
+  const list = [];
+  let n = 0;
+  for (let c = 0; c < amounts.length; c++) {
+    if (amounts[c] === null || amounts[c] === undefined || amounts[c] <= 0) continue;
+    const pieces = splitAmount(amounts[c], 3);
+    for (let k = 0; k < pieces.length; k++) {
+      list.push({
+        id: makeId(),
+        amount: pieces[k],
+        category: cats[c].id,
+        date: scenarioDate(n),
+        note: 'Scenario test',
+        merchant: DEMO_MERCHANTS_BY_CAT[c] || 'Test Store',
+      });
+      n++;
+    }
+  }
+  return list;
+}
+
+// Merchant names used by the scenarios (one per default category).
+const DEMO_MERCHANTS_BY_CAT = [
+  'Campus Cafe',
+  'DoorDash',
+  'Taco Hut',
+  'Test Subscription',
+  'GameStore',
+];
+
+// ------------------------------------------------------------
+// percentsToAmounts(percents) converts target percentages of
+// the standard limits into dollar totals.
+// ------------------------------------------------------------
+function percentsToAmounts(percents) {
+  const amounts = [];
+  for (let i = 0; i < percents.length; i++) {
+    amounts.push(roundMoney((SCENARIO_LIMITS[i] * percents[i]) / 100));
+  }
+  return amounts;
+}
+
+// ------------------------------------------------------------
+// makeRepeatCharges(merchant, amounts, gaps, catId) makes
+// subscription-style purchases. amounts[i] is the price of
+// charge i. gaps[i] is the days between charge i and i + 1.
+// The newest charge is 5 days ago.
+// ------------------------------------------------------------
+function makeRepeatCharges(merchant, amounts, gaps, catId) {
+  const list = [];
+  let daysAgo = 5;
+  for (let i = 0; i < amounts.length; i++) {
+    list.push({
+      id: makeId(),
+      amount: amounts[i],
+      category: catId,
+      date: addDaysToDate(todayString(), -daysAgo),
+      note: 'Scenario test',
+      merchant: merchant,
+    });
+    if (i < gaps.length) daysAgo += gaps[i];
+  }
+  return list;
+}
+
+// ------------------------------------------------------------
+// loadScenario(key) replaces ALL data with the named test
+// scenario. Returns the scenario object (or null if the key is
+// unknown, in which case nothing is changed).
+// ------------------------------------------------------------
+export function loadScenario(key) {
+  let scenario = null;
+  for (let i = 0; i < SCENARIOS.length; i++) {
+    if (SCENARIOS[i].key === key) scenario = SCENARIOS[i];
+  }
+  if (!scenario) return null;
+
+  // Every scenario starts with fresh settings.
+  saveSettings(Object.assign({}, DEFAULT_SETTINGS));
+  const watch = [0, 1, 4];
+  let cats;
+  let purchases = [];
+
+  if (key === 'limits-ok') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    purchases = monthSpendFor(cats, percentsToAmounts([40, 40, 40, 40, 40]));
+  } else if (key === 'limits-warning') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    purchases = monthSpendFor(cats, percentsToAmounts([85, 85, 85, 85, 85]));
+  } else if (key === 'limits-over') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    purchases = monthSpendFor(cats, percentsToAmounts([120, 120, 120, 120, 120]));
+  } else if (key === 'limits-boundary') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    // Coffee 48 / 60 = 80%. Delivery 120 / 120 = 100%.
+    // Fast Food 63.99 / 80 = 79.99%. Subscriptions 40.01 / 40 = 100.03%.
+    purchases = monthSpendFor(cats, [48, 120, 63.99, 40.01, 0]);
+  } else if (key === 'limits-mixed') {
+    // Subscriptions has NO limit (0) but has spending.
+    cats = makeScenarioCategories([60, 120, 80, 0, 50], watch);
+    purchases = monthSpendFor(cats, [20, 100, 95, 30, 0]);
+  } else if (key === 'no-limits') {
+    cats = makeScenarioCategories([0, 0, 0, 0, 0], []);
+    purchases = monthSpendFor(cats, [25, 60, 45, 30, 15]);
+  } else if (key === 'empty-month') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    // Purchases only from 40 to 300 days ago, none this month.
+    const days = [40, 70, 100, 140, 190, 250, 300];
+    for (let i = 0; i < days.length; i++) {
+      for (let c = 0; c < 3; c++) {
+        purchases.push({
+          id: makeId(),
+          amount: roundMoney(8 + c * 7 + i),
+          category: cats[c].id,
+          date: addDaysToDate(todayString(), -(days[i] + c)),
+          note: 'Scenario test',
+          merchant: DEMO_MERCHANTS_BY_CAT[c],
+        });
+      }
+    }
+  } else if (key === 'today-spike') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    // Four purchases today (above each one-day share) plus
+    // some older purchases that "This day" must ignore.
+    const todayAmounts = [18, 45, 30, 12];
+    for (let c = 0; c < todayAmounts.length; c++) {
+      purchases.push({
+        id: makeId(),
+        amount: todayAmounts[c],
+        category: cats[c].id,
+        date: todayString(),
+        note: 'Scenario test',
+        merchant: DEMO_MERCHANTS_BY_CAT[c],
+      });
+    }
+    for (let k = 1; k <= 6; k++) {
+      purchases.push({
+        id: makeId(),
+        amount: 9,
+        category: cats[0].id,
+        date: addDaysToDate(todayString(), -k * 4),
+        note: 'Scenario test',
+        merchant: 'Campus Cafe',
+      });
+    }
+  } else if (key === 'subscriptions') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    const sub = cats[3].id;
+    // Detected: 30-day gaps, and exactly 25 and 35 day gaps.
+    purchases = purchases.concat(makeRepeatCharges('Netflix', [15.49, 15.49, 15.49, 15.49], [30, 30, 30], sub));
+    purchases = purchases.concat(makeRepeatCharges('Spotify', [12.99, 11.99, 11.99], [30, 31], sub));
+    purchases = purchases.concat(makeRepeatCharges('Disney+', [9.99, 9.99, 9.99], [25, 35], sub));
+    // NOT detected: only 2 charges, a 45-day gap, random one-offs.
+    purchases = purchases.concat(makeRepeatCharges('Gym', [25, 25], [30], sub));
+    purchases = purchases.concat(makeRepeatCharges('Hulu', [7.99, 7.99, 7.99], [30, 45], sub));
+    purchases.push({ id: makeId(), amount: 23.4, category: cats[6].id, date: addDaysToDate(todayString(), -3), note: 'Scenario test', merchant: 'Amazon' });
+    purchases.push({ id: makeId(), amount: 61.2, category: cats[6].id, date: addDaysToDate(todayString(), -40), note: 'Scenario test', merchant: 'Amazon' });
+    purchases.push({ id: makeId(), amount: 8.75, category: cats[6].id, date: addDaysToDate(todayString(), -77), note: 'Scenario test', merchant: 'Amazon' });
+  } else if (key === 'duplicates') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    purchases.push({
+      id: makeId(),
+      amount: 5.5,
+      category: cats[0].id,
+      date: todayString(),
+      note: 'Scenario test',
+      merchant: 'Starbucks',
+    });
+  } else if (key === 'impulse') {
+    cats = makeScenarioCategories(SCENARIO_LIMITS, watch);
+    purchases = monthSpendFor(cats, percentsToAmounts([95, 30, 0, 0, 60]));
+    saveSettings(Object.assign({}, DEFAULT_SETTINGS, { hourlyWage: 15 }));
+  }
+
+  savePurchases(purchases);
+  return scenario;
+}
+
 // ------------------------------------------------------------
 // loadDemoData() fills storage with about 60 realistic
 // purchases spread over the last 3 months, plus default

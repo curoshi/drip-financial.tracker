@@ -27,8 +27,9 @@ import {
   saveSettings,
   loadTheme,
   saveTheme,
-  loadDemoData,
   loadDemoDataSized,
+  loadScenario,
+  SCENARIOS,
   clearAllData,
   todayString,
   isValidDate,
@@ -1263,24 +1264,36 @@ function initSettingsForm() {
 }
 
 // ============================================================
-// DATA BUTTONS — Load demo data & Clear all data
+// DATA BUTTONS — Test data, scenarios & Clear all data
 // ============================================================
 
 // ------------------------------------------------------------
-// initDataButtons() wires up the demo and clear buttons.
+// initDataButtons() wires up the stress-test, scenario, and clear buttons.
 // Clear shows a confirm dialog before doing anything.
 // ------------------------------------------------------------
 function initDataButtons() {
-  const demoBtn = $('btn-demo');
   const clearBtn = $('btn-clear');
 
-  if (demoBtn) {
-    demoBtn.addEventListener('click', function () {
-      loadDemoData();
-      // Re-render whatever view is active.
+  // Build the scenario test buttons from the SCENARIOS list.
+  // Each button loads its data, refreshes the screen, and shows
+  // what the tester should look for.
+  const groups = { limits: $('scenario-limits'), features: $('scenario-features') };
+  for (let i = 0; i < SCENARIOS.length; i++) {
+    const sc = SCENARIOS[i];
+    const box = groups[sc.group];
+    if (!box) continue;
+    const btn = document.createElement('button');
+    btn.className = 'btn btn-secondary';
+    btn.type = 'button';
+    btn.textContent = sc.label;
+    btn.addEventListener('click', function () {
+      loadScenario(sc.key);
       renderView(currentView);
-      showSuccess('set-success', 'Demo data loaded!');
+      const expectEl = $('scenario-expect');
+      if (expectEl) expectEl.textContent = 'Loaded "' + sc.label + '". ' + sc.expect;
+      showSuccess('set-success', 'Loaded test: ' + sc.label);
     });
+    box.appendChild(btn);
   }
 
   // Stress-test buttons: each one has data-demo-items (how many

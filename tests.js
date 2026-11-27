@@ -25,6 +25,11 @@ import {
   getStatus,
   projectMonthEnd,
   daysInMonth,
+  getLimitForRange,
+  getPurchasesThisMonth,
+  loadSettings,
+  loadScenario,
+  SCENARIOS,
   getPurchasesSince,
   calcHabitCost,
   safeToSpendPerDay,
@@ -235,6 +240,7 @@ function runTests() {
   // because they temporarily swap real storage for fakes.
   runDeleteCategoryTests();
   runSubscriptionTests();
+  runScenarioTests();
   runTimeRangeTests();
 }
 
@@ -469,8 +475,8 @@ function runTimeRangeTests() {
     savePurchases([
       { id: 't1', amount: 1.0, category: 'x', date: addDaysToDate(today, 0), note: '', merchant: '' },
       { id: 't2', amount: 2.0, category: 'x', date: addDaysToDate(today, -10), note: '', merchant: '' },
-      { id: 't3', amount: 4.0, category: 'x', date: addDaysToDate(today, -100), note: '', merchant: '' },
-      { id: 't4', amount: 8.0, category: 'x', date: addDaysToDate(today, -200), note: '', merchant: '' },
+      { id: 't3', amount: 4.0, category: 'x', date: addDaysToDate(today, -80), note: '', merchant: '' },
+      { id: 't4', amount: 8.0, category: 'x', date: addDaysToDate(today, -150), note: '', merchant: '' },
       { id: 't5', amount: 16.0, category: 'x', date: addDaysToDate(today, -400), note: '', merchant: '' },
     ]);
 
@@ -480,14 +486,84 @@ function runTimeRangeTests() {
     // Last 30 days catches today and 10 days ago.
     assertEqual(getPurchasesSince(30).length, 2, 'time range: last 30 days returns 2 purchases');
 
-    // ~3 months catches 100 days ago too.
+    // ~3 months catches 80 days ago too.
     assertEqual(getPurchasesSince(89).length, 3, 'time range: 3 months returns 3 purchases');
 
-    // ~6 months catches 200 days ago.
+    // ~6 months catches 150 days ago.
     assertEqual(getPurchasesSince(182).length, 4, 'time range: 6 months returns 4 purchases');
 
     // ~1 year catches everything here (oldest is 400 days out only).
     assertEqual(getPurchasesSince(364).length, 4, 'time range: 1 year returns 4 purchases');
+  } finally {
+    restoreStorage(real);
+  }
+}
+
+// ============================================================
+// SCENARIO TESTS — the Settings test buttons
+// ============================================================
+
+// ------------------------------------------------------------
+// statusesThisMonth() returns the status of each of the first 5
+// categories this month ("none" when the limit is 0).
+// ------------------------------------------------------------
+function statusesThisMonth() {
+  const cats = loadCategories();
+  const month = getPurchasesThisMonth();
+  const result = [];
+  for (let i = 0; i < 5; i++) {
+    const spent = sumAmounts(month.filter(function (p) { return p.category === cats[i].id; }));
+    const pct = percentUsed(spent, cats[i].monthlyLimit);
+    result.push(pct === null ? 'none' : getStatus(pct));
+  }
+  return result;
+}
+
+// ------------------------------------------------------------
+// runScenarioTests() loads each limit scenario into fake storage
+// and checks the statuses the dashboard should show.
+// ------------------------------------------------------------
+function runScenarioTests() {
+  console.log('%c=== Scenario Tests ===', 'font-size:16px;font-weight:bold');
+  const real = installFakeStorage();
+  try {
+    loadScenario('limits-ok');
+    assertEqual(statusesThisMonth().join(','), 'ok,ok,ok,ok,ok', 'scenario: all under 80% is ok');
+
+    loadScenario('limits-warning');
+    assertEqual(statusesThisMonth().join(','), 'warning,warning,warning,warning,warning', 'scenario: 85% is warning');
+
+    loadScenario('limits-over');
+    assertEqual(statusesThisMonth().join(','), 'over,over,over,over,over', 'scenario: 120% is over');
+
+    loadScenario('limits-boundary');
+    assertEqual(statusesThisMonth().join(','), 'warning,over,ok,over,ok', 'scenario: exact 80% / 100% boundaries');
+
+    loadScenario('limits-mixed');
+    assertEqual(statusesThisMonth().join(','), 'ok,warning,over,none,ok', 'scenario: mixed statuses');
+
+    loadScenario('no-limits');
+    assertEqual(statusesThisMonth().join(','), 'none,none,none,none,none', 'scenario: no limits shows none');
+
+    loadScenario('empty-month');
+    assertEqual(getPurchasesThisMonth().length, 0, 'scenario: empty month has no purchases this month');
+    assertTrue(loadPurchases().length > 0, 'scenario: empty month still has older purchases');
+
+    loadScenario('subscriptions');
+    const subs = detectSubscriptions(loadPurchases()).map(function (s) { return s.merchant; }).sort();
+    assertEqual(subs.join(','), 'Disney+,Netflix,Spotify', 'scenario: only the real subscriptions are detected');
+
+    loadScenario('duplicates');
+    assertTrue(
+      findDuplicatePurchase(5.5, 'starbucks', todayString(), loadPurchases()) !== null,
+      'scenario: duplicates data triggers the duplicate check'
+    );
+
+    loadScenario('impulse');
+    assertEqual(loadSettings().hourlyWage, 15, 'scenario: impulse sets an hourly wage');
+
+    assertEqual(loadScenario('not-a-scenario'), null, 'scenario: unknown key changes nothing');
+    assertTrue(SCENARIOS.length >= 10, 'scenario: list has the test buttons');
   } finally {
     restoreStorage(real);
   }
