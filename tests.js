@@ -21,6 +21,20 @@ import {
   hoursWorked,
   findDuplicateCategory,
   findDuplicatePurchase,
+  percentUsed,
+  getStatus,
+  projectMonthEnd,
+  daysInMonth,
+  calcHabitCost,
+  safeToSpendPerDay,
+  detectSubscriptions,
+  saveCategories,
+  savePurchases,
+  loadCategories,
+  loadPurchases,
+  addCategory,
+  deleteCategory,
+  STORAGE_KEYS,
 } from './data.js';
 
 // ------------------------------------------------------------
@@ -157,6 +171,47 @@ function runTests() {
   assertEqual(hoursWorked(50, -10), null, 'hoursWorked returns null for negative wage');
   assertEqual(hoursWorked(33.5, 15), 2.2, 'hoursWorked rounds to 1 decimal');
 
+  // --- percentUsed ---
+  assertEqual(percentUsed(50, 100), 50, 'percentUsed: half the limit is 50%');
+  assertEqual(percentUsed(80, 100), 80, 'percentUsed: 80 of 100 is exactly 80%');
+  assertEqual(percentUsed(50, 0), null, 'percentUsed: limit 0 returns null');
+  assertEqual(percentUsed(50, -5), null, 'percentUsed: negative limit returns null');
+  assertEqual(percentUsed(120, 100), 120, 'percentUsed: can go over 100%');
+
+  // --- getStatus ---
+  assertEqual(getStatus(79.99), 'ok', 'getStatus: 79.99 is ok');
+  assertEqual(getStatus(80), 'warning', 'getStatus: exactly 80 is warning');
+  assertEqual(getStatus(99.99), 'warning', 'getStatus: 99.99 is still warning');
+  assertEqual(getStatus(100), 'over', 'getStatus: exactly 100 is over');
+  assertEqual(getStatus(150), 'over', 'getStatus: 150 is over');
+  assertEqual(getStatus(null), 'ok', 'getStatus: null (no limit) is ok');
+
+  // --- projectMonthEnd ---
+  // $30 spent in 1 day of a 30-day month projects to $900.
+  assertEqual(projectMonthEnd(30, 1, 30), 900, 'projectMonthEnd: day 1 of 30 scales up 30x');
+  // $30 spent over all 30 days is just $30 at month end.
+  assertEqual(projectMonthEnd(30, 30, 30), 30, 'projectMonthEnd: last day adds no projection');
+  // $10 over 5 days of a 31-day month projects to $62.
+  assertEqual(projectMonthEnd(10, 5, 31), 62, 'projectMonthEnd: uses actual days in month');
+  // 0 days elapsed is guarded — no division by zero.
+  assertEqual(projectMonthEnd(30, 0, 30), 30, 'projectMonthEnd: 0 days elapsed returns spentSoFar');
+
+  // --- calcHabitCost ---
+  // 12 purchases of $5 across the last 4 weeks = 3 per week.
+  // $5 average x 3 per week x 52 weeks = $780 per year.
+  const weeklyHistory = [];
+  for (let w = 0; w < 11; w++) {
+    weeklyHistory.push(5);
+  }
+  assertEqual(calcHabitCost(weeklyHistory, 5), 780, 'calcHabitCost: $5 x 3 per week = $780/year');
+
+  // --- safeToSpendPerDay ---
+  // Over budget already — never negative, returns 0.
+  assertEqual(safeToSpendPerDay(100, 150, 10), 0, 'safeToSpendPerDay: negative budget returns 0');
+  assertEqual(safeToSpendPerDay(100, 100, 10), 0, 'safeToSpendPerDay: exactly at budget returns 0');
+  assertEqual(safeToSpendPerDay(100, 50, 10), 5, 'safeToSpendPerDay: $50 left over 10 days is $5/day');
+  assertEqual(safeToSpendPerDay(100, 50, 0), 0, 'safeToSpendPerDay: 0 days left returns 0');
+
   // Restore console.log and print the summary.
   console.log = originalLog;
   console.log(
@@ -166,6 +221,11 @@ function runTests() {
 
   // Duplicate tests run separately so they do not affect the count above.
   runDuplicateTests();
+
+  // Category-delete and subscription tests also run separately
+  // because they temporarily swap real storage for fakes.
+  runDeleteCategoryTests();
+  runSubscriptionTests();
 }
 
 // Run the tests after the page is fully loaded.
@@ -227,4 +287,124 @@ function runDuplicateTests() {
   // Same date and merchant but different amount is NOT a duplicate.
   const dupP4 = findDuplicatePurchase(5.0, 'Starbucks', '2026-11-20', samplePurchases);
   assertEqual(dupP4, null, 'duplicate purchase: different amount is allowed');
+}
+
+// ============================================================
+// DELETE CATEGORY TESTS — purchases move to Other
+// These temporarily swap the real storage functions for fake
+// in-memory ones so the user's real data is never touched.
+// ============================================================
+
+// ------------------------------------------------------------
+// installFakeStorage() replaces window.localStorage with an
+// in-memory object that has the same getItem/setItem/removeItem
+// methods. Returns the saved real storage so it can be restored.
+// ------------------------------------------------------------
+function installFakeStorage() {
+  const real = window.localStorage;
+  const fake = {};
+  const fakeStorage = {
+    getItem: function (key) {
+      return key in fake ? fake[key] : null;
+    },
+    setItem: function (key, value) {
+      fake[key] = String(value);
+    },
+    removeItem: function (key) {
+      delete fake[key];
+    },
+  };
+  Object.defineProperty(window, 'localStorage', {
+    value: fakeStorage,
+    configurable: true,
+  });
+  return real;
+}
+
+// ------------------------------------------------------------
+// restoreStorage(real) puts the real localStorage back.
+// ------------------------------------------------------------
+function restoreStorage(real) {
+  Object.defineProperty(window, 'localStorage', {
+    value: real,
+    configurable: true,
+  });
+}
+
+// ------------------------------------------------------------
+// runDeleteCategoryTests() checks that deleting a category
+// moves its purchases to the "Other" category instead of
+// deleting them.
+// ------------------------------------------------------------
+function runDeleteCategoryTests() {
+  console.log('%c=== Delete Category Tests ===', 'font-size:16px;font-weight:bold');
+
+  const real = installFakeStorage();
+
+  try {
+    // Set up two categories: one to delete and one named Other.
+    saveCategories([
+      { id: 'coffee', name: 'Coffee', monthlyLimit: 0, watch: false },
+      { id: 'other', name: 'Other', monthlyLimit: 0, watch: false },
+    ]);
+
+    // Two purchases in Coffee.
+    savePurchases([
+      { id: 'p1', amount: 4.0, category: 'coffee', date: '2026-11-01', note: '', merchant: '' },
+      { id: 'p2', amount: 6.0, category: 'coffee', date: '2026-11-02', note: '', merchant: '' },
+    ]);
+
+    // Delete the Coffee category.
+    deleteCategory('coffee');
+
+    // Coffee is gone.
+    const cats = loadCategories();
+    assertEqual(cats.length, 1, 'deleteCategory: category is removed');
+    assertEqual(cats[0].id, 'other', 'deleteCategory: Other category remains');
+
+    // Both purchases survived, now living in Other.
+    const purchases = loadPurchases();
+    assertEqual(purchases.length, 2, 'deleteCategory: purchases are not deleted');
+    assertTrue(
+      purchases.every(function (p) { return p.category === 'other'; }),
+      'deleteCategory: purchases moved to Other'
+    );
+  } finally {
+    restoreStorage(real);
+  }
+}
+
+// ============================================================
+// SUBSCRIPTION DETECTION TESTS
+// Pure-function tests using in-memory purchase arrays.
+// ============================================================
+
+// ------------------------------------------------------------
+// runSubscriptionTests() checks detectSubscriptions flags a
+// clean 30-day repeat and ignores one-off purchases.
+// ------------------------------------------------------------
+function runSubscriptionTests() {
+  console.log('%c=== Subscription Tests ===', 'font-size:16px;font-weight:bold');
+
+  // A clean subscription: $15.49 every 30 days, 3 times.
+  const repeating = [
+    { id: 's1', amount: 15.49, category: 'c', date: '2026-09-01', note: '', merchant: 'Netflix' },
+    { id: 's2', amount: 15.49, category: 'c', date: '2026-10-01', note: '', merchant: 'Netflix' },
+    { id: 's3', amount: 15.49, category: 'c', date: '2026-11-01', note: '', merchant: 'Netflix' },
+  ];
+  const found = detectSubscriptions(repeating);
+  assertEqual(found.length, 1, 'subscriptions: 30-day repeat is detected');
+  assertEqual(found[0] && found[0].chargeCount, 3, 'subscriptions: counts all 3 charges');
+
+  // Two random one-offs from the same merchant are NOT a subscription.
+  const oneOffs = [
+    { id: 'o1', amount: 8.0, category: 'c', date: '2026-09-14', note: '', merchant: 'Amazon' },
+    { id: 'o2', amount: 45.0, category: 'c', date: '2026-11-20', note: '', merchant: 'Amazon' },
+  ];
+  const none = detectSubscriptions(oneOffs);
+  assertEqual(none.length, 0, 'subscriptions: one-offs are ignored');
+
+  // A single purchase can never be a subscription.
+  const single = detectSubscriptions([repeating[0]]);
+  assertEqual(single.length, 0, 'subscriptions: a single charge is ignored');
 }

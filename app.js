@@ -47,6 +47,10 @@ import {
   getTotalYearlySubscriptions,
   findDuplicateCategory,
   findDuplicatePurchase,
+  percentUsed,
+  getStatus,
+  projectMonthEnd,
+  daysInMonth,
 } from './data.js';
 
 // We keep the current view name here so we know which tab is active.
@@ -256,8 +260,10 @@ function renderDashboard() {
   const cardsEl = $('summary-cards');
   if (!cardsEl) return;
 
-  // Count how many categories are over their limit this month.
+  // Work out each category's spending status using the pure
+  // helpers. Exactly 100% counts as "over".
   let overCount = 0;
+  let warningCount = 0;
   for (let i = 0; i < cats.length; i++) {
     if (cats[i].monthlyLimit > 0) {
       const spent = sumAmounts(
@@ -265,9 +271,18 @@ function renderDashboard() {
           return p.category === cats[i].id;
         })
       );
-      if (spent > cats[i].monthlyLimit) overCount++;
+      const status = getStatus(percentUsed(spent, cats[i].monthlyLimit));
+      if (status === 'over') overCount++;
+      if (status === 'warning') warningCount++;
     }
   }
+
+  // Month-end projection for ALL categories combined.
+  const totalProjected = projectMonthEnd(
+    totalThisMonth,
+    daysInMonth() - daysLeftInMonth(),
+    daysInMonth()
+  );
 
   // Safe-to-spend per day.
   const safeDaily = getSafeToSpendPerDay();
@@ -292,13 +307,71 @@ function renderDashboard() {
       'Money Saved',
       formatMoney(settings.moneySaved || 0, settings.currency),
       'by skipping impulse buys'
+    ) +
+    buildSummaryCard(
+      'Projected Month End',
+      formatMoney(totalProjected, settings.currency),
+      'at current pace'
     );
+
+  // --- Alert banner (warnings and over-limit alerts) ---
+  renderAlertBanner(cats, thisMonthPurchases, settings.currency);
 
   // --- Category bars ---
   renderDashboardCategories(cats, thisMonthPurchases, settings.currency);
 
   // --- Recent purchases ---
   renderRecentPurchases(settings.currency);
+}
+
+// ------------------------------------------------------------
+// renderAlertBanner(cats, monthPurchases, currency) shows a
+// banner at the top of the dashboard: red for categories at
+// 100%+ of their limit, yellow for categories at 80-99%.
+// Hidden when no category is in either state.
+// ------------------------------------------------------------
+function renderAlertBanner(cats, monthPurchases, currency) {
+  const bannerEl = $('alert-banner');
+  if (!bannerEl) return;
+
+  // Collect warning and over-limit category names.
+  const warnings = [];
+  const overs = [];
+
+  for (let i = 0; i < cats.length; i++) {
+    const cat = cats[i];
+    if (cat.monthlyLimit <= 0) continue;
+    const spent = sumAmounts(
+      monthPurchases.filter(function (p) {
+        return p.category === cat.id;
+      })
+    );
+    const pct = percentUsed(spent, cat.monthlyLimit);
+    const status = getStatus(pct);
+    if (status === 'over') {
+      overs.push(cat.name + ' (' + Math.round(pct) + '%)');
+    } else if (status === 'warning') {
+      warnings.push(cat.name + ' (' + Math.round(pct) + '%)');
+    }
+  }
+
+  let html = '';
+  if (overs.length > 0) {
+    html +=
+      '<div class="alert alert-danger" role="alert">' +
+      '<strong>Over budget:</strong> ' + escapeHTML(overs.join(', ')) +
+      '</div>';
+  }
+  if (warnings.length > 0) {
+    html +=
+      '<div class="alert alert-warning" role="alert">' +
+      '<strong>Close to limit:</strong> ' + escapeHTML(warnings.join(', ')) +
+      '</div>';
+  }
+
+  // No alerts — hide the banner entirely.
+  bannerEl.innerHTML = html;
+  bannerEl.classList.toggle('hidden', html === '');
 }
 
 // ------------------------------------------------------------
@@ -336,18 +409,26 @@ function renderDashboardCategories(cats, monthPurchases, currency) {
     const spent = sumAmounts(catPurchases);
     const limit = cat.monthlyLimit;
 
-    // Figure out the bar color and width.
+    // Figure out the bar color and width using getStatus.
+    // Exactly 100% now counts as "over" (red).
     let fillClass = 'ok';
     let fillWidth = 0;
+    let projectionText = '';
 
     if (limit > 0) {
-      const pct = (spent / limit) * 100;
+      const pct = percentUsed(spent, limit);
       fillWidth = Math.min(pct, 100);
-      if (spent > limit) {
+      const status = getStatus(pct);
+      if (status === 'over') {
         fillClass = 'over';
-      } else if (pct >= 80) {
+      } else if (status === 'warning') {
         fillClass = 'warn';
       }
+
+      // Project this category's month-end total at current pace.
+      const daysElapsed = daysInMonth() - daysLeftInMonth();
+      const projected = projectMonthEnd(spent, daysElapsed, daysInMonth());
+      projectionText = ' · projected ' + formatMoney(projected, currency);
     } else {
       // No limit set — show a short blue bar.
       fillClass = '';
@@ -356,7 +437,7 @@ function renderDashboardCategories(cats, monthPurchases, currency) {
 
     const watchBadge = cat.watch ? '<span class="watch-badge">Watching</span>' : '';
     const limitText = limit > 0
-      ? formatMoney(spent, currency) + ' / ' + formatMoney(limit, currency)
+      ? formatMoney(spent, currency) + ' / ' + formatMoney(limit, currency) + projectionText
       : formatMoney(spent, currency) + ' · no limit';
 
     const fillHtml = fillClass

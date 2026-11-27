@@ -264,21 +264,48 @@ export function renameCategory(id, newName) {
 }
 
 // ------------------------------------------------------------
-// deleteCategory(id) removes a category and any purchases
-// that used it, then saves both lists.
+// deleteCategory(id) removes a category. Purchases in that
+// category are NOT deleted — they are moved to the "Other"
+// category instead, so no spending history is lost. If there
+// is no "Other" category to move them to (for example when
+// deleting "Other" itself), the purchases are removed.
 // ------------------------------------------------------------
 export function deleteCategory(id) {
   let cats = loadCategories();
+
+  // Find the "Other" category, as long as it is not the one
+  // being deleted.
+  let otherCat = null;
+  for (let i = 0; i < cats.length; i++) {
+    if (cats[i].name.toLowerCase() === 'other' && cats[i].id !== id) {
+      otherCat = cats[i];
+      break;
+    }
+  }
+
+  // Remove the category itself.
   cats = cats.filter(function (c) {
     return c.id !== id;
   });
   saveCategories(cats);
 
-  let purchases = loadPurchases();
-  purchases = purchases.filter(function (p) {
-    return p.category !== id;
-  });
-  savePurchases(purchases);
+  const purchases = loadPurchases();
+
+  if (otherCat) {
+    // Move every purchase from the deleted category to Other.
+    for (let i = 0; i < purchases.length; i++) {
+      if (purchases[i].category === id) {
+        purchases[i].category = otherCat.id;
+      }
+    }
+    savePurchases(purchases);
+  } else {
+    // No Other category — remove the purchases as before.
+    const kept = purchases.filter(function (p) {
+      return p.category !== id;
+    });
+    savePurchases(kept);
+  }
 }
 
 // ------------------------------------------------------------
@@ -542,6 +569,51 @@ export function getPercentOfLimit(catId, amount) {
   return Math.round((amount / cat.monthlyLimit) * 100);
 }
 
+// ============================================================
+// BUDGET STATUS & MONTH-END PROJECTION
+// Pure functions — they only use their inputs, so they are
+// easy to test without any saved data.
+// ============================================================
+
+// ------------------------------------------------------------
+// percentUsed(spent, limit) returns how much of the limit was
+// spent, as a percentage (80 means 80% used).
+// Returns null if the limit is 0, because there is no limit
+// to compare against (and dividing by zero is impossible).
+// ------------------------------------------------------------
+export function percentUsed(spent, limit) {
+  if (!limit || limit <= 0) return null;
+  return (spent / limit) * 100;
+}
+
+// ------------------------------------------------------------
+// getStatus(percent) turns a percentage into a status word:
+//   "ok"      — under 80
+//   "warning" — 80 up to (but not including) 100
+//   "over"    — 100 or more (at exactly 100% the budget is
+//               used up, so it counts as over)
+// Returns "ok" for null (no limit set).
+// ------------------------------------------------------------
+export function getStatus(percent) {
+  if (percent === null || percent === undefined) return 'ok';
+  if (percent >= 100) return 'over';
+  if (percent >= 80) return 'warning';
+  return 'ok';
+}
+
+// ------------------------------------------------------------
+// projectMonthEnd(spentSoFar, daysElapsed, daysInMonth)
+// estimates the total spent by the end of the month, based on
+// the average spending per day so far.
+// daysElapsed must be at least 1. If a smaller value is given
+// there is no pace to measure, so it just returns spentSoFar.
+// ------------------------------------------------------------
+export function projectMonthEnd(spentSoFar, daysElapsed, daysInMonth) {
+  if (daysElapsed < 1) return roundMoney(spentSoFar);
+  const perDay = spentSoFar / daysElapsed;
+  return roundMoney(perDay * daysInMonth);
+}
+
 // ------------------------------------------------------------
 // calcHabitCost(recentAmounts, newAmount) estimates the yearly
 // cost if a purchase becomes a habit.
@@ -609,6 +681,16 @@ export function daysLeftInMonth() {
   const today = now.getDate();
   const left = lastDay - today;
   return left > 0 ? left : 0;
+}
+
+// ------------------------------------------------------------
+// daysInMonth() returns the total number of days in the
+// current month (e.g. 30 for November, 31 for January).
+// ------------------------------------------------------------
+export function daysInMonth() {
+  const now = new Date();
+  // Day 0 of next month is the last day of this month.
+  return new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
 }
 
 // ------------------------------------------------------------
