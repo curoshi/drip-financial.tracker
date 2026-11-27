@@ -28,6 +28,7 @@ import {
   loadTheme,
   saveTheme,
   loadDemoData,
+  loadDemoDataSized,
   clearAllData,
   todayString,
   isValidDate,
@@ -52,6 +53,7 @@ import {
   projectMonthEnd,
   daysInMonth,
   getPurchasesSince,
+  getLimitForRange,
 } from './data.js';
 
 // We keep the current view name here so we know which tab is active.
@@ -443,40 +445,63 @@ function buildSummaryCard(label, value, sub, extraClass) {
 }
 
 // ------------------------------------------------------------
-// renderDashboardCategories(cats, monthPurchases, currency)
+// renderDashboardCategories(cats, rangePurchases, currency)
 // builds the spending-by-category bars for the dashboard.
-// Each bar shows how much was spent vs the monthly limit.
+// Everything on the bar (amount, width, color) now uses the
+// SELECTED time range, so the bars change when the dropdown
+// changes. The monthly limit is scaled to the range with
+// getLimitForRange. Categories with no limit get a bar sized
+// against the biggest category in that range.
 // ------------------------------------------------------------
-function renderDashboardCategories(cats, monthPurchases, currency) {
+function renderDashboardCategories(cats, rangePurchases, currency) {
   const container = $('dashboard-categories');
   if (!container) return;
 
+  // Step 1: total spent per category in this range, and the
+  // biggest total (used to size bars for no-limit categories).
+  const totals = [];
+  let biggest = 0;
+  for (let i = 0; i < cats.length; i++) {
+    const catId = cats[i].id;
+    const spent = sumAmounts(
+      rangePurchases.filter(function (p) {
+        return p.category === catId;
+      })
+    );
+    totals.push(spent);
+    if (spent > biggest) biggest = spent;
+  }
+
+  // Explain how limits are scaled for the chosen range.
+  const hintEl = $('range-hint');
+  if (hintEl) {
+    const hints = {
+      today: 'Limit shown = one day\'s share (monthly limit / days in month).',
+      month: 'Monthly limits.',
+      '3months': 'Limit shown = monthly limit x 3.',
+      '6months': 'Limit shown = monthly limit x 6.',
+      year: 'Limit shown = monthly limit x 12.',
+    };
+    hintEl.textContent = hints[categoryRange] || '';
+  }
+
   let html = '';
 
+  // Step 2: build one bar per category.
   for (let i = 0; i < cats.length; i++) {
     const cat = cats[i];
-    // Find this category's purchases in the selected range.
-    const catPurchases = monthPurchases.filter(function (p) {
-      return p.category === cat.id;
-    });
-    const spent = sumAmounts(catPurchases);
+    const spent = totals[i];
     const limit = cat.monthlyLimit;
 
-    // Figure out the bar color and width using getStatus.
-    // Exactly 100% now counts as "over" (red).
     let fillClass = 'ok';
     let fillWidth = 0;
     let projectionText = '';
-
-    // Status colors and projection only make sense against a
-    // monthly limit, so we compare this month's spending.
-    const thisMonthCatPurchases = getPurchasesThisMonth().filter(function (p) {
-      return p.category === cat.id;
-    });
-    const monthSpent = sumAmounts(thisMonthCatPurchases);
+    let rangeLimit = 0;
 
     if (limit > 0) {
-      const pct = percentUsed(monthSpent, limit);
+      // Compare spending to the limit scaled to this range.
+      rangeLimit = getLimitForRange(limit, categoryRange);
+      const pct = percentUsed(spent, rangeLimit);
       fillWidth = Math.min(pct, 100);
       const status = getStatus(pct);
       if (status === 'over') {
@@ -485,19 +510,24 @@ function renderDashboardCategories(cats, monthPurchases, currency) {
         fillClass = 'warn';
       }
 
-      // Project this category's month-end total at current pace.
-      const daysElapsed = daysInMonth() - daysLeftInMonth();
-      const projected = projectMonthEnd(monthSpent, daysElapsed, daysInMonth());
-      projectionText = ' · projected ' + formatMoney(projected, currency);
+      // A month-end projection only makes sense for "This month".
+      if (categoryRange === 'month') {
+        const daysElapsed = daysInMonth() - daysLeftInMonth();
+        const projected = projectMonthEnd(spent, daysElapsed, daysInMonth());
+        projectionText = ' · projected ' + formatMoney(projected, currency);
+      }
     } else {
-      // No limit set — show a short blue bar.
+      // No limit set: bar length is relative to the biggest
+      // category in this range (at least 4% so it is visible).
       fillClass = '';
-      fillWidth = Math.min(spent, 100) > 0 ? 8 : 0;
+      if (spent > 0 && biggest > 0) {
+        fillWidth = Math.max(4, (spent / biggest) * 100);
+      }
     }
 
     const watchBadge = cat.watch ? '<span class="watch-badge">Watching</span>' : '';
     const limitText = limit > 0
-      ? formatMoney(spent, currency) + ' / ' + formatMoney(limit, currency) + projectionText
+      ? formatMoney(spent, currency) + ' / ' + formatMoney(rangeLimit, currency) + projectionText
       : formatMoney(spent, currency) + ' · no limit';
 
     const fillHtml = fillClass
@@ -988,8 +1018,15 @@ function attachCategoryHandlers() {
       delBtn.addEventListener('click', function () {
         const cat = getCategoryById(catId);
         const catName = cat ? cat.name : 'this category';
+
+        // "Other" is where deleted categories' purchases go, so it stays.
+        if (cat && cat.name.toLowerCase() === 'other') {
+          alert('The "Other" category cannot be deleted. It holds purchases from deleted categories.');
+          return;
+        }
+
         const ok = confirm(
-          'Delete "' + catName + '"? This also removes all purchases in this category.'
+          'Delete "' + catName + '"? Its purchases will be moved to "Other".'
         );
         if (ok) {
           deleteCategory(catId);
@@ -1126,7 +1163,7 @@ function renderSubscriptions() {
   if (subs.length === 0) {
     list.innerHTML =
       '<p class="empty-state">No subscriptions detected. ' +
-      'Subscriptions are 2+ charges from the same merchant, ' +
+      'Subscriptions are 3+ charges from the same merchant, ' +
       'similar amounts (within 10%), about 30 days apart.</p>';
     totalEl.innerHTML = '';
     return;
@@ -1243,6 +1280,20 @@ function initDataButtons() {
       // Re-render whatever view is active.
       renderView(currentView);
       showSuccess('set-success', 'Demo data loaded!');
+    });
+  }
+
+  // Stress-test buttons: each one has data-demo-items (how many
+  // purchases) and data-demo-days (how many days they span).
+  const sizedBtns = document.querySelectorAll('[data-demo-items]');
+  for (let i = 0; i < sizedBtns.length; i++) {
+    sizedBtns[i].addEventListener('click', function (event) {
+      const btn = event.currentTarget;
+      const count = Number(btn.getAttribute('data-demo-items'));
+      const days = Number(btn.getAttribute('data-demo-days'));
+      loadDemoDataSized(count, days);
+      renderView(currentView);
+      showSuccess('set-success', 'Loaded ' + count + ' demo purchases over ' + days + ' days.');
     });
   }
 
