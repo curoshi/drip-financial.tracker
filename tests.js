@@ -25,6 +25,7 @@ import {
   getStatus,
   projectMonthEnd,
   daysInMonth,
+  getPurchasesSince,
   calcHabitCost,
   safeToSpendPerDay,
   detectSubscriptions,
@@ -226,6 +227,7 @@ function runTests() {
   // because they temporarily swap real storage for fakes.
   runDeleteCategoryTests();
   runSubscriptionTests();
+  runTimeRangeTests();
 }
 
 // Run the tests after the page is fully loaded.
@@ -407,4 +409,53 @@ function runSubscriptionTests() {
   // A single purchase can never be a subscription.
   const single = detectSubscriptions([repeating[0]]);
   assertEqual(single.length, 0, 'subscriptions: a single charge is ignored');
+}
+
+// ============================================================
+// TIME RANGE TESTS — getPurchasesSince
+// Uses the fake storage swap so the user's real data is safe.
+// ============================================================
+
+// ------------------------------------------------------------
+// runTimeRangeTests() checks getPurchasesSince returns only
+// purchases within the last N days, including today.
+// These tests also document the dashboard dropdown options:
+//   today     -> getPurchasesSince(0)
+//   3 months  -> getPurchasesSince(89)
+//   6 months  -> getPurchasesSince(182)
+//   1 year    -> getPurchasesSince(364)
+// ------------------------------------------------------------
+function runTimeRangeTests() {
+  console.log('%c=== Time Range Tests ===', 'font-size:16px;font-weight:bold');
+
+  const real = installFakeStorage();
+
+  try {
+    const today = todayString();
+    saveCategories(makeDefaultCategories());
+    savePurchases([
+      { id: 't1', amount: 1.0, category: 'x', date: addDaysToDate(today, 0), note: '', merchant: '' },
+      { id: 't2', amount: 2.0, category: 'x', date: addDaysToDate(today, -10), note: '', merchant: '' },
+      { id: 't3', amount: 4.0, category: 'x', date: addDaysToDate(today, -100), note: '', merchant: '' },
+      { id: 't4', amount: 8.0, category: 'x', date: addDaysToDate(today, -200), note: '', merchant: '' },
+      { id: 't5', amount: 16.0, category: 'x', date: addDaysToDate(today, -400), note: '', merchant: '' },
+    ]);
+
+    // Today only catches just the purchase dated today.
+    assertEqual(getPurchasesSince(0).length, 1, 'time range: today returns 1 purchase');
+
+    // Last 30 days catches today and 10 days ago.
+    assertEqual(getPurchasesSince(30).length, 2, 'time range: last 30 days returns 2 purchases');
+
+    // ~3 months catches 100 days ago too.
+    assertEqual(getPurchasesSince(89).length, 3, 'time range: 3 months returns 3 purchases');
+
+    // ~6 months catches 200 days ago.
+    assertEqual(getPurchasesSince(182).length, 4, 'time range: 6 months returns 4 purchases');
+
+    // ~1 year catches everything here (oldest is 400 days out only).
+    assertEqual(getPurchasesSince(364).length, 4, 'time range: 1 year returns 4 purchases');
+  } finally {
+    restoreStorage(real);
+  }
 }

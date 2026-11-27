@@ -50,7 +50,13 @@
           <div class="card">
             <div class="card-head">
               <h2 class="card-title">Spending by Category</h2>
-              <span class="card-sub">This month</span>
+              <select id="range-select" class="select-small">
+                <option value="today">This day</option>
+                <option value="month" selected>This month</option>
+                <option value="3months">3 months</option>
+                <option value="6months">6 months</option>
+                <option value="year">1 year</option>
+              </select>
             </div>
             <div id="dashboard-categories"></div>
           </div>
@@ -58,7 +64,12 @@
           <div class="card">
             <div class="card-head">
               <h2 class="card-title">Recent Purchases</h2>
-              <span class="card-sub">Last 5</span>
+              <select id="recent-count" class="select-small">
+                <option value="5" selected>Last 5</option>
+                <option value="10">Last 10</option>
+                <option value="25">Last 25</option>
+                <option value="all">All</option>
+              </select>
             </div>
             <ul id="dashboard-recent" class="recent-list"></ul>
           </div>

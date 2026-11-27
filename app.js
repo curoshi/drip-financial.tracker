@@ -51,6 +51,7 @@ import {
   getStatus,
   projectMonthEnd,
   daysInMonth,
+  getPurchasesSince,
 } from './data.js';
 
 // We keep the current view name here so we know which tab is active.
@@ -58,6 +59,14 @@ let currentView = 'dashboard';
 
 // We keep the current filter for the purchases table here.
 let purchaseFilter = 'all';
+
+// Which time range the Spending by Category card shows.
+// One of: today, month, 3months, 6months, year.
+let categoryRange = 'month';
+
+// How many recent purchases the dashboard card shows.
+// A number, or 'all' for every purchase.
+let recentCount = 5;
 
 // We store the pending purchase here during an impulse check.
 let pendingPurchase = null;
@@ -256,6 +265,10 @@ function renderDashboard() {
   const thisMonthPurchases = getPurchasesThisMonth();
   const totalThisMonth = sumAmounts(thisMonthPurchases);
 
+  // Purchases in the selected time range (for the category card).
+  const rangedPurchases = getPurchasesForRange(categoryRange);
+  const totalRanged = sumAmounts(rangedPurchases);
+
   // --- Summary cards ---
   const cardsEl = $('summary-cards');
   if (!cardsEl) return;
@@ -317,11 +330,24 @@ function renderDashboard() {
   // --- Alert banner (warnings and over-limit alerts) ---
   renderAlertBanner(cats, thisMonthPurchases, settings.currency);
 
-  // --- Category bars ---
-  renderDashboardCategories(cats, thisMonthPurchases, settings.currency);
+  // --- Category bars (uses the selected time range) ---
+  renderDashboardCategories(cats, rangedPurchases, settings.currency);
 
-  // --- Recent purchases ---
+  // --- Recent purchases (uses the selected count) ---
   renderRecentPurchases(settings.currency);
+}
+
+// ------------------------------------------------------------
+// getPurchasesForRange(rangeKey) returns the purchases for a
+// named time range: today, month, 3months, 6months, or year.
+// ------------------------------------------------------------
+function getPurchasesForRange(rangeKey) {
+  if (rangeKey === 'today') return getPurchasesSince(0);
+  if (rangeKey === 'month') return getPurchasesThisMonth();
+  if (rangeKey === '3months') return getPurchasesSince(89);
+  if (rangeKey === '6months') return getPurchasesSince(182);
+  if (rangeKey === 'year') return getPurchasesSince(364);
+  return loadPurchases();
 }
 
 // ------------------------------------------------------------
@@ -402,7 +428,7 @@ function renderDashboardCategories(cats, monthPurchases, currency) {
 
   for (let i = 0; i < cats.length; i++) {
     const cat = cats[i];
-    // Find this category's purchases this month.
+    // Find this category's purchases in the selected range.
     const catPurchases = monthPurchases.filter(function (p) {
       return p.category === cat.id;
     });
@@ -415,8 +441,15 @@ function renderDashboardCategories(cats, monthPurchases, currency) {
     let fillWidth = 0;
     let projectionText = '';
 
+    // Status colors and projection only make sense against a
+    // monthly limit, so we compare this month's spending.
+    const thisMonthCatPurchases = getPurchasesThisMonth().filter(function (p) {
+      return p.category === cat.id;
+    });
+    const monthSpent = sumAmounts(thisMonthCatPurchases);
+
     if (limit > 0) {
-      const pct = percentUsed(spent, limit);
+      const pct = percentUsed(monthSpent, limit);
       fillWidth = Math.min(pct, 100);
       const status = getStatus(pct);
       if (status === 'over') {
@@ -427,7 +460,7 @@ function renderDashboardCategories(cats, monthPurchases, currency) {
 
       // Project this category's month-end total at current pace.
       const daysElapsed = daysInMonth() - daysLeftInMonth();
-      const projected = projectMonthEnd(spent, daysElapsed, daysInMonth());
+      const projected = projectMonthEnd(monthSpent, daysElapsed, daysInMonth());
       projectionText = ' · projected ' + formatMoney(projected, currency);
     } else {
       // No limit set — show a short blue bar.
@@ -462,14 +495,42 @@ function renderDashboardCategories(cats, monthPurchases, currency) {
 }
 
 // ------------------------------------------------------------
-// renderRecentPurchases(currency) shows the 5 most recent
-// purchases in the dashboard's right-side card.
+// initDashboardControls() wires up the two dashboard dropdowns:
+// the Spending by Category time range and the Recent Purchases
+// count. Changing either re-renders the dashboard right away.
+// ------------------------------------------------------------
+function initDashboardControls() {
+  const rangeSelect = $('range-select');
+  const countSelect = $('recent-count');
+
+  if (rangeSelect) {
+    rangeSelect.addEventListener('change', function () {
+      categoryRange = rangeSelect.value;
+      renderDashboard();
+    });
+  }
+
+  if (countSelect) {
+    countSelect.addEventListener('change', function () {
+      recentCount = countSelect.value === 'all' ? 'all' : Number(countSelect.value);
+      renderDashboard();
+    });
+  }
+}
+
+// ------------------------------------------------------------
+// renderRecentPurchases(currency) shows the most recent
+// purchases in the dashboard's right-side card, using the
+// count chosen in the dropdown (5, 10, 25, or all).
 // ------------------------------------------------------------
 function renderRecentPurchases(currency) {
   const list = $('dashboard-recent');
   if (!list) return;
 
-  const recent = getRecentPurchases(5);
+  // Use the selected count: a number, or everything for 'all'.
+  const recent = recentCount === 'all'
+    ? sortPurchasesByDate(loadPurchases())
+    : getRecentPurchases(Number(recentCount));
   const cats = loadCategories();
 
   if (recent.length === 0) {
@@ -1226,6 +1287,9 @@ function init() {
 
   // Fill the purchases filter dropdown.
   initPurchasesFilter();
+
+  // Set up the dashboard dropdowns (range and recent count).
+  initDashboardControls();
 
   // Show the dashboard by default.
   switchView('dashboard');

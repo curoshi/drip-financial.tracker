@@ -445,6 +445,19 @@ export function getPurchasesThisMonth() {
 }
 
 // ------------------------------------------------------------
+// getPurchasesSince(days) returns purchases made within the
+// last "days" days, including today. days = 0 means today only.
+// Used by the dashboard's time-range dropdown.
+// ------------------------------------------------------------
+export function getPurchasesSince(days) {
+  const cutoff = addDaysToDate(todayString(), -days);
+  const purchases = loadPurchases();
+  return purchases.filter(function (p) {
+    return p.date >= cutoff && p.date <= todayString();
+  });
+}
+
+// ------------------------------------------------------------
 // sumAmounts(purchases) adds up the amount of every purchase
 // in the array and returns the total as a rounded number.
 // ------------------------------------------------------------
