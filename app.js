@@ -227,6 +227,33 @@ function initTabs() {
   }
 }
 
+// ------------------------------------------------------------
+// initBottomNavSlide() makes the phone-only bottom nav slide
+// up into view once the user scrolls past the top menus
+// (header + tabs), and slide away when they are back in view.
+// Uses IntersectionObserver so it works without scroll math.
+// ------------------------------------------------------------
+function initBottomNavSlide() {
+  const bottomNav = $('bottom-nav');
+  const tabs = $('tabs');
+  if (!bottomNav || !tabs) return;
+
+  // This only matters on phones, where the bottom nav shows.
+  if (window.matchMedia('(min-width: 640px)').matches) return;
+
+  const observer = new IntersectionObserver(
+    function (entries) {
+      // isIntersecting is true when the tabs are on screen.
+      // No tabs visible = bottom nav slides up.
+      bottomNav.classList.toggle('visible', !entries[0].isIntersecting);
+    },
+    // Fire as soon as the tabs fully leave the viewport.
+    { threshold: 0 }
+  );
+
+  observer.observe(tabs);
+}
+
 // ============================================================
 // CATEGORY DROPDOWN — used by the Add Purchase form and filter
 // ============================================================
@@ -1277,6 +1304,7 @@ function init() {
 
   // Set up navigation.
   initTabs();
+  initBottomNavSlide();
 
   // Set up forms and buttons.
   initAddPurchaseForm();
