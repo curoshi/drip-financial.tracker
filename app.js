@@ -74,6 +74,11 @@ let recentCount = 5;
 // We store the pending purchase here during an impulse check.
 let pendingPurchase = null;
 
+// How the impulse panel was opened:
+//   'preview' = "Check before I buy" (nothing bought or saved yet)
+//   'log'     = the user is logging a watched purchase after the fact
+let impulseMode = 'log';
+
 // ============================================================
 // HELPERS — small functions that make rendering easier
 // ============================================================
@@ -704,12 +709,55 @@ function initAddPurchaseForm() {
     if (cat && cat.watch) {
       // Show the impulse check panel instead of saving.
       pendingPurchase = newPurchase;
-      showImpulseCheck(pendingPurchase);
+      showImpulseCheck(pendingPurchase, 'log');
       return;
     }
 
     // Not a watched category — save the purchase right away.
     savePendingPurchase();
+  });
+}
+
+// ------------------------------------------------------------
+// initCheckFirstButton() wires up "Check before I buy".
+// It shows the impulse panel for ANY category WITHOUT saving
+// anything, so the user can decide before spending the money.
+// Only the amount and category are needed (the date is today).
+// ------------------------------------------------------------
+function initCheckFirstButton() {
+  const btn = $('btn-check-first');
+  if (!btn) return;
+
+  btn.addEventListener('click', function () {
+    const amountStr = $('f-amount').value;
+    const categoryId = $('f-category').value;
+    setError('err-amount', '');
+    setError('err-category', '');
+
+    // Same amount and category rules as the Add Purchase form.
+    const amountNum = Number(amountStr);
+    let hasError = false;
+    if (amountStr === '' || isNaN(amountNum)) {
+      setError('err-amount', 'Enter a number.');
+      hasError = true;
+    } else if (amountNum <= 0) {
+      setError('err-amount', 'Amount must be greater than 0.');
+      hasError = true;
+    }
+    if (!categoryId) {
+      setError('err-category', 'Pick a category.');
+      hasError = true;
+    }
+    if (hasError) return;
+
+    pendingPurchase = {
+      amount: roundMoney(amountNum),
+      category: categoryId,
+      date: todayString(),
+      note: $('f-note').value,
+      merchant: $('f-merchant').value,
+    };
+    showImpulseCheck(pendingPurchase, 'preview');
   });
 }
 
@@ -750,7 +798,8 @@ function savePendingPurchase() {
 // panel with budget left, percent of limit, habit cost, and
 // work hours.
 // ------------------------------------------------------------
-function showImpulseCheck(data) {
+function showImpulseCheck(data, mode) {
+  impulseMode = mode === 'preview' ? 'preview' : 'log';
   const panel = $('impulse-panel');
   const content = $('impulse-content');
   if (!panel || !content) return;
@@ -813,11 +862,25 @@ function showImpulseCheck(data) {
   // Amount summary.
   html +=
     '<div class="impulse-summary">' +
-    'You are about to log ' +
+    (impulseMode === 'preview' ? 'You are thinking about buying ' : 'You are about to log ') +
     '<strong>' + formatMoney(data.amount, settings.currency) + '</strong>' +
     ' in <strong>' + escapeHTML(catName) + '</strong>' +
     (data.merchant ? ' at <strong>' + escapeHTML(data.merchant) + '</strong>' : '') +
     '.</div>';
+
+  // Change the wording to match how the panel was opened.
+  const subEl = $('impulse-sub');
+  const logBtn = $('impulse-log');
+  const skipBtn = $('impulse-skip');
+  if (impulseMode === 'preview') {
+    if (subEl) subEl.textContent = 'Not saved yet. Decide before you buy.';
+    if (logBtn) logBtn.textContent = "I'll buy it";
+    if (skipBtn) skipBtn.textContent = "I won't buy it";
+  } else {
+    if (subEl) subEl.textContent = 'Watched category. If you already bought this, saving just records it.';
+    if (logBtn) logBtn.textContent = 'Save purchase';
+    if (skipBtn) skipBtn.textContent = "Don't save";
+  }
 
   content.innerHTML = html;
   panel.classList.remove('hidden');
@@ -848,13 +911,18 @@ function initImpulseCheck() {
 
   if (skipBtn) {
     skipBtn.addEventListener('click', function () {
-      // Add the amount to the "money saved" counter.
       if (pendingPurchase) {
-        addMoneySaved(pendingPurchase.amount);
         const form = $('add-purchase-form');
+        if (impulseMode === 'preview') {
+          // The user decided NOT to buy: that money really was saved.
+          addMoneySaved(pendingPurchase.amount);
+          showSuccess('add-success', "Good call! " + formatMoney(pendingPurchase.amount, loadSettings().currency) + " saved.");
+        } else {
+          // The purchase already happened, so nothing was saved.
+          showSuccess('add-success', 'Not saved.');
+        }
         form.reset();
         $('f-date').value = todayString();
-        showSuccess('add-success', 'Skipped it! Money saved.');
       }
       pendingPurchase = null;
       hideImpulseCheck();
@@ -1373,6 +1441,7 @@ function init() {
   // Set up forms and buttons.
   initAddPurchaseForm();
   initImpulseCheck();
+  initCheckFirstButton();
   initAddCategoryForm();
   initSettingsForm();
   initDataButtons();

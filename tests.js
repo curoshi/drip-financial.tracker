@@ -30,6 +30,7 @@ import {
   loadSettings,
   loadScenario,
   SCENARIOS,
+  addMoneySaved,
   getPurchasesSince,
   calcHabitCost,
   safeToSpendPerDay,
@@ -561,6 +562,13 @@ function runScenarioTests() {
 
     loadScenario('impulse');
     assertEqual(loadSettings().hourlyWage, 15, 'scenario: impulse sets an hourly wage');
+
+    // Money Saved adds up across skipped purchases.
+    addMoneySaved(5);
+    addMoneySaved(2.5);
+    assertEqual(loadSettings().moneySaved, 7.5, 'money saved: adds up skipped amounts');
+    loadScenario('limits-ok');
+    assertEqual(loadSettings().moneySaved, 0, 'money saved: scenarios reset it to 0');
 
     assertEqual(loadScenario('not-a-scenario'), null, 'scenario: unknown key changes nothing');
     assertTrue(SCENARIOS.length >= 10, 'scenario: list has the test buttons');

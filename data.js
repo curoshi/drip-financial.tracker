@@ -1047,7 +1047,7 @@ export const SCENARIOS = [
     group: 'features',
     label: 'Impulse check',
     expect:
-      'Coffee is at 95% and is watched, and your hourly wage is $15. Add a Coffee purchase to see budget left, yearly habit cost, and work hours.',
+      'Coffee is at 95% and is watched, and your hourly wage is $15. On Add Purchase, enter a Coffee amount and click "Check before I buy" (nothing is saved), then "I will not buy it" to raise Money Saved.',
   },
 ];
 
