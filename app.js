@@ -64,7 +64,7 @@ let currentView = 'dashboard';
 let purchaseFilter = 'all';
 
 // Which time range the Spending by Category card shows.
-// One of: today, month, 3months, 6months, year.
+// One of: today, 7days, month, 3months, 6months, year.
 let categoryRange = 'month';
 
 // How many recent purchases the dashboard card shows.
@@ -374,10 +374,11 @@ function renderDashboard() {
 
 // ------------------------------------------------------------
 // getPurchasesForRange(rangeKey) returns the purchases for a
-// named time range: today, month, 3months, 6months, or year.
+// named time range: today, 7days, month, 3months, 6months, or year.
 // ------------------------------------------------------------
 function getPurchasesForRange(rangeKey) {
   if (rangeKey === 'today') return getPurchasesSince(0);
+  if (rangeKey === '7days') return getPurchasesSince(6);
   if (rangeKey === 'month') return getPurchasesThisMonth();
   if (rangeKey === '3months') return getPurchasesSince(89);
   if (rangeKey === '6months') return getPurchasesSince(182);
@@ -483,6 +484,7 @@ function renderDashboardCategories(cats, rangePurchases, currency) {
   if (hintEl) {
     const hints = {
       today: 'Limit shown = one day\'s share (monthly limit / days in month).',
+      '7days': 'Limit shown = seven days\' share (monthly limit / days in month x 7).',
       month: 'Monthly limits.',
       '3months': 'Limit shown = monthly limit x 3.',
       '6months': 'Limit shown = monthly limit x 6.',

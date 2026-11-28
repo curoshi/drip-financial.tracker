@@ -460,6 +460,7 @@ export function getPurchasesSince(days) {
 // limit to the time range picked on the dashboard, so bars
 // stay fair when the range changes:
 //   today   = one day's share (monthly limit / days in month)
+//   7days   = seven days' share (monthly limit / days in month x 7)
 //   month   = the monthly limit
 //   3months = monthly limit x 3, 6months = x 6, year = x 12
 // Returns 0 when there is no limit (monthlyLimit is 0).
@@ -467,6 +468,7 @@ export function getPurchasesSince(days) {
 export function getLimitForRange(monthlyLimit, rangeKey) {
   if (!monthlyLimit || monthlyLimit <= 0) return 0;
   if (rangeKey === 'today') return roundMoney(monthlyLimit / daysInMonth());
+  if (rangeKey === '7days') return roundMoney((monthlyLimit / daysInMonth()) * 7);
   if (rangeKey === '3months') return roundMoney(monthlyLimit * 3);
   if (rangeKey === '6months') return roundMoney(monthlyLimit * 6);
   if (rangeKey === 'year') return roundMoney(monthlyLimit * 12);

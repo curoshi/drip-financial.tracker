@@ -225,6 +225,7 @@ function runTests() {
   assertEqual(getLimitForRange(60, '6months'), 360, 'getLimitForRange 6 months = x6');
   assertEqual(getLimitForRange(60, 'year'), 720, 'getLimitForRange year = x12');
   assertEqual(getLimitForRange(60, 'today'), roundMoney(60 / daysInMonth()), 'getLimitForRange today = one day share');
+  assertEqual(getLimitForRange(60, '7days'), roundMoney((60 / daysInMonth()) * 7), 'getLimitForRange 7 days = seven day share');
   assertEqual(getLimitForRange(0, 'year'), 0, 'getLimitForRange returns 0 when no limit');
 
   // Restore console.log and print the summary.
@@ -483,6 +484,7 @@ function runTimeRangeTests() {
 
     // Today only catches just the purchase dated today.
     assertEqual(getPurchasesSince(0).length, 1, 'time range: today returns 1 purchase');
+    assertEqual(getPurchasesSince(6).length, 1, 'time range: 7 days returns only this week\'s purchase');
 
     // Last 30 days catches today and 10 days ago.
     assertEqual(getPurchasesSince(30).length, 2, 'time range: last 30 days returns 2 purchases');
